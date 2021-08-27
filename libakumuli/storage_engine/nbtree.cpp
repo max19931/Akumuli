@@ -22,6 +22,7 @@
 #include <sstream>
 #include <stack>
 #include <array>
+#include <regex>
 
 // App
 #include "nbtree.h"
@@ -727,6 +728,35 @@ struct EmptyIterator : RealValuedOperator {
     }
 };
 
+struct EmptyAggregator : AggregateOperator {
+
+    //! Starting timestamp
+    aku_Timestamp              begin_;
+    //! Final timestamp
+    aku_Timestamp              end_;
+
+    EmptyAggregator(aku_Timestamp begin, aku_Timestamp end)
+        : begin_(begin)
+        , end_(end)
+    {
+    }
+
+    size_t get_size() const {
+        return 0;
+    }
+
+    virtual std::tuple<aku_Status, size_t> read(aku_Timestamp *destts, AggregationResult *destval, size_t size) {
+        return std::make_tuple(AKU_ENO_DATA, 0);
+    }
+
+    virtual Direction get_direction() {
+        if (begin_ < end_) {
+            return Direction::FORWARD;
+        }
+        return Direction::BACKWARD;
+    }
+};
+
 // //////////////////////// //
 // class NBTreeSBlockFilter //
 // //////////////////////// //
@@ -953,27 +983,28 @@ ValueAggregator::Direction ValueAggregator::get_direction() {
 /** Superblock aggregator (iterator that computes different aggregates e.g. min/max/avg/sum).
   * Uses metadata stored in superblocks in some cases.
   */
-class NBTreeSBlockAggregator : public NBTreeSBlockIteratorBase<AggregationResult> {
+class NBTreeSBlockAggregatorImpl : public NBTreeSBlockIteratorBase<AggregationResult> {
 
-    bool leftmost_leaf_found_;
+    bool &leftmost_leaf_found_;
 
 public:
     template<class SuperblockT>
-    NBTreeSBlockAggregator(std::shared_ptr<BlockStore> bstore,
-                           SuperblockT const& sblock,
-                           aku_Timestamp begin,
-                           aku_Timestamp end)
+    NBTreeSBlockAggregatorImpl(std::shared_ptr<BlockStore> bstore,
+                               SuperblockT const& sblock, aku_Timestamp begin,
+                               aku_Timestamp end,
+                               bool &leftmost_leaf_found)
         : NBTreeSBlockIteratorBase<AggregationResult>(bstore, sblock, begin, end)
-        , leftmost_leaf_found_(false)
+        , leftmost_leaf_found_(leftmost_leaf_found)
     {
     }
 
-    NBTreeSBlockAggregator(std::shared_ptr<BlockStore> bstore,
-                           LogicAddr addr,
-                           aku_Timestamp begin,
-                           aku_Timestamp end)
+    NBTreeSBlockAggregatorImpl(std::shared_ptr<BlockStore> bstore,
+                               LogicAddr addr,
+                               aku_Timestamp begin,
+                               aku_Timestamp end,
+                               bool& leftmost_leaf_found)
         : NBTreeSBlockIteratorBase<AggregationResult>(bstore, addr, begin, end)
-        , leftmost_leaf_found_(false)
+        , leftmost_leaf_found_(leftmost_leaf_found)
     {
     }
     virtual std::tuple<aku_Status, std::unique_ptr<AggregateOperator>> make_leaf_iterator(const SubtreeRef &ref) override;
@@ -981,7 +1012,7 @@ public:
     virtual std::tuple<aku_Status, size_t> read(aku_Timestamp *destts, AggregationResult *destval, size_t size) override;
 };
 
-std::tuple<aku_Status, size_t> NBTreeSBlockAggregator::read(aku_Timestamp *destts, AggregationResult *destval, size_t size) {
+std::tuple<aku_Status, size_t> NBTreeSBlockAggregatorImpl::read(aku_Timestamp *destts, AggregationResult *destval, size_t size) {
     if (size == 0) {
         return std::make_pair(AKU_EBAD_ARG, 0ul);
     }
@@ -1029,7 +1060,7 @@ std::tuple<aku_Status, size_t> NBTreeSBlockAggregator::read(aku_Timestamp *destt
     return std::make_tuple(status, size);
 }
 
-std::tuple<aku_Status, std::unique_ptr<AggregateOperator> > NBTreeSBlockAggregator::make_leaf_iterator(SubtreeRef const& ref) {
+std::tuple<aku_Status, std::unique_ptr<AggregateOperator>> NBTreeSBlockAggregatorImpl::make_leaf_iterator(SubtreeRef const& ref) {
     if (!bstore_->exists(ref.addr)) {
         TIter empty;
         return std::make_tuple(AKU_EUNAVAILABLE, std::move(empty));
@@ -1047,7 +1078,7 @@ std::tuple<aku_Status, std::unique_ptr<AggregateOperator> > NBTreeSBlockAggregat
     return std::make_tuple(AKU_SUCCESS, std::move(result));
 }
 
-std::tuple<aku_Status, std::unique_ptr<AggregateOperator> > NBTreeSBlockAggregator::make_superblock_iterator(SubtreeRef const& ref) {
+std::tuple<aku_Status, std::unique_ptr<AggregateOperator>> NBTreeSBlockAggregatorImpl::make_superblock_iterator(SubtreeRef const& ref) {
     if (!bstore_->exists(ref.addr)) {
         TIter empty;
         return std::make_tuple(AKU_EUNAVAILABLE, std::move(empty));
@@ -1057,14 +1088,46 @@ std::tuple<aku_Status, std::unique_ptr<AggregateOperator> > NBTreeSBlockAggregat
     std::unique_ptr<AggregateOperator> result;
     if (leftmost_leaf_found_ && (min <= ref.begin && ref.end < max)) {
         // We don't need to go to lower level, value from subtree ref can be used instead.
+        // This optimization is only enable if we've found leftmost leaf node (otherwise we
+        // might read the outdated aggregates that contain information from the deleted nodes)
         auto agg = INIT_AGGRES;
         agg.copy_from(ref);
         result.reset(new ValueAggregator(ref.end, agg, get_direction()));
     } else {
-        result.reset(new NBTreeSBlockAggregator(bstore_, ref.addr, begin_, end_));
+        result.reset(new NBTreeSBlockAggregatorImpl(bstore_, ref.addr, begin_, end_, leftmost_leaf_found_));
     }
     return std::make_tuple(AKU_SUCCESS, std::move(result));
 }
+
+struct NBTreeSBlockAggregator : SeriesOperator<AggregationResult>
+{
+    bool leftmost_leaf_found_;
+    NBTreeSBlockAggregatorImpl impl_;
+
+    template<class SuperblockT>
+    NBTreeSBlockAggregator(std::shared_ptr<BlockStore> bstore,
+                           SuperblockT const& sblock,
+                           aku_Timestamp begin,
+                           aku_Timestamp end)
+        : leftmost_leaf_found_(std::min(begin, end) == AKU_MIN_TIMESTAMP && std::max(begin, end) == AKU_MAX_TIMESTAMP)
+        , impl_(bstore, sblock, std::min(begin, end), std::max(begin, end), leftmost_leaf_found_)
+    {
+    }
+    NBTreeSBlockAggregator(std::shared_ptr<BlockStore> bstore,
+                               LogicAddr addr,
+                               aku_Timestamp begin,
+                               aku_Timestamp end)
+        : leftmost_leaf_found_(std::min(begin, end) == AKU_MIN_TIMESTAMP && std::max(begin, end) == AKU_MAX_TIMESTAMP)
+        , impl_(bstore, addr, std::min(begin, end), std::max(begin, end), leftmost_leaf_found_)
+    {
+    }
+    std::tuple<aku_Status, size_t> read(aku_Timestamp *destts, AggregationResult *destval, size_t size) override {
+        return impl_.read(destts, destval, size);
+    }
+    Direction get_direction() override {
+        return Direction::FORWARD;
+    }
+};
 
 
 // ///////////////////////// //
@@ -1661,6 +1724,48 @@ public:
 
     virtual Direction get_direction() {
         return base_->get_direction() == RealValuedOperator::Direction::FORWARD ? Direction::FORWARD : Direction::BACKWARD;
+    }
+};
+
+class BinaryDataFilter : public BinaryDataOperator {
+    std::unique_ptr<BinaryDataOperator> it_;
+    std::regex regex_;
+public:
+    BinaryDataFilter(std::unique_ptr<BinaryDataOperator> base, const std::string& regex)
+    : it_(std::move(base))
+    , regex_(regex.data(), std::regex_constants::ECMAScript)
+    {
+    }
+
+    virtual std::tuple<aku_Status, size_t> read(aku_Timestamp *destts, std::string *destxs, size_t size) {
+        aku_Timestamp ts;
+        std::string   xs;
+        aku_Status    status;
+        size_t        len;
+        size_t        outlen = 0;
+        while (size != 0) {
+            std::tie(status, len) = it_->read(&ts, &xs, 1);
+            if (status != AKU_SUCCESS) {
+                if (status == AKU_ENO_DATA && len == 0) {
+                    break;
+                } else if (status != AKU_ENO_DATA){
+                    break;
+                }
+            }
+            if (len == 1) {
+                if (std::regex_search(xs, regex_)) {
+                    outlen++;
+                    *destts++ = ts;
+                    *destxs++ = xs;
+                    size--;
+                }
+            }
+        }
+        return std::make_pair(status, outlen);
+    }
+
+    virtual Direction get_direction() {
+        return it_->get_direction();
     }
 };
 
@@ -3849,13 +3954,18 @@ std::unique_ptr<RealValuedOperator> NBTreeExtentsList::search(aku_Timestamp begi
     }
     SharedLock lock(lock_);
     std::vector<std::unique_ptr<RealValuedOperator>> iterators;
-    if (begin < end) {
-        for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
-            iterators.push_back((*it)->search(begin, end));
-        }
-    } else {
-        for (auto const& root: extents_) {
-            iterators.push_back(root->search(begin, end));
+    if (extents_.empty()) {
+        iterators.emplace_back(new EmptyIterator(begin, end));
+    }
+    else {
+        if (begin < end) {
+            for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
+                iterators.push_back((*it)->search(begin, end));
+            }
+        } else {
+            for (auto const& root: extents_) {
+                iterators.push_back(root->search(begin, end));
+            }
         }
     }
     if (iterators.size() == 1) {
@@ -3872,13 +3982,18 @@ std::unique_ptr<BinaryDataOperator> NBTreeExtentsList::search_binary(aku_Timesta
     }
     SharedLock lock(lock_);
     std::vector<std::unique_ptr<RealValuedOperator>> iterators;
-    if (begin < end) {
-        for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
-            iterators.push_back((*it)->search(begin, end));
-        }
-    } else {
-        for (auto const& root: extents_) {
-            iterators.push_back(root->search(begin, end));
+    if (extents_.empty()) {
+        iterators.emplace_back(new EmptyIterator(begin, end));
+    }
+    else {
+        if (begin < end) {
+            for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
+                iterators.push_back((*it)->search(begin, end));
+            }
+        } else {
+            for (auto const& root: extents_) {
+                iterators.push_back(root->search(begin, end));
+            }
         }
     }
     if (iterators.size() == 1) {
@@ -3891,6 +4006,13 @@ std::unique_ptr<BinaryDataOperator> NBTreeExtentsList::search_binary(aku_Timesta
     return res;
 }
 
+std::unique_ptr<BinaryDataOperator> NBTreeExtentsList::filter_binary(aku_Timestamp begin, aku_Timestamp end, const std::string& regex) const {
+    auto it = search_binary(begin, end);
+    std::unique_ptr<BinaryDataOperator> op;
+    op.reset(new BinaryDataFilter(std::move(it), regex));
+    return op;
+}
+
 std::unique_ptr<RealValuedOperator> NBTreeExtentsList::filter(aku_Timestamp begin,
                                                               aku_Timestamp end,
                                                               const ValueFilter& filter) const
@@ -3900,13 +4022,18 @@ std::unique_ptr<RealValuedOperator> NBTreeExtentsList::filter(aku_Timestamp begi
     }
     SharedLock lock(lock_);
     std::vector<std::unique_ptr<RealValuedOperator>> iterators;
-    if (begin < end) {
-        for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
-            iterators.push_back((*it)->filter(begin, end, filter));
-        }
-    } else {
-        for (auto const& root: extents_) {
-            iterators.push_back(root->filter(begin, end, filter));
+    if (extents_.empty()) {
+        iterators.emplace_back(new EmptyIterator(begin, end));
+    }
+    else {
+        if (begin < end) {
+            for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
+                iterators.push_back((*it)->filter(begin, end, filter));
+            }
+        } else {
+            for (auto const& root: extents_) {
+                iterators.push_back(root->filter(begin, end, filter));
+            }
         }
     }
     if (iterators.size() == 1) {
@@ -3923,13 +4050,18 @@ std::unique_ptr<AggregateOperator> NBTreeExtentsList::aggregate(aku_Timestamp be
     }
     SharedLock lock(lock_);
     std::vector<std::unique_ptr<AggregateOperator>> iterators;
-    if (begin < end) {
-        for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
-            iterators.push_back((*it)->aggregate(begin, end));
-        }
-    } else {
-        for (auto const& root: extents_) {
-            iterators.push_back(root->aggregate(begin, end));
+    if (extents_.empty()) {
+        iterators.emplace_back(new EmptyAggregator(begin, end));
+    }
+    else {
+        if (begin < end) {
+            for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
+                iterators.push_back((*it)->aggregate(begin, end));
+            }
+        } else {
+            for (auto const& root: extents_) {
+                iterators.push_back(root->aggregate(begin, end));
+            }
         }
     }
     if (iterators.size() == 1) {
@@ -3947,13 +4079,18 @@ std::unique_ptr<AggregateOperator> NBTreeExtentsList::group_aggregate(aku_Timest
     }
     SharedLock lock(lock_);
     std::vector<std::unique_ptr<AggregateOperator>> iterators;
-    if (begin < end) {
-        for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
-            iterators.push_back((*it)->group_aggregate(begin, end, step));
-        }
-    } else {
-        for (auto const& root: extents_) {
-            iterators.push_back(root->group_aggregate(begin, end, step));
+    if (extents_.empty()) {
+        iterators.emplace_back(new EmptyAggregator(begin, end));
+    }
+    else {
+        if (begin < end) {
+            for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
+                iterators.push_back((*it)->group_aggregate(begin, end, step));
+            }
+        } else {
+            for (auto const& root: extents_) {
+                iterators.push_back(root->group_aggregate(begin, end, step));
+            }
         }
     }
     std::unique_ptr<AggregateOperator> concat;
@@ -3978,13 +4115,18 @@ std::unique_ptr<AggregateOperator> NBTreeExtentsList::candlesticks(aku_Timestamp
     }
     SharedLock lock(lock_);
     std::vector<std::unique_ptr<AggregateOperator>> iterators;
-    if (begin < end) {
-        for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
-            iterators.push_back((*it)->candlesticks(begin, end, hint));
-        }
-    } else {
-        for (auto const& root: extents_) {
-            iterators.push_back(root->candlesticks(begin, end, hint));
+    if (extents_.empty()) {
+        iterators.emplace_back(new EmptyAggregator(begin, end));
+    }
+    else {
+        if (begin < end) {
+            for (auto it = extents_.rbegin(); it != extents_.rend(); it++) {
+                iterators.push_back((*it)->candlesticks(begin, end, hint));
+            }
+        } else {
+            for (auto const& root: extents_) {
+                iterators.push_back(root->candlesticks(begin, end, hint));
+            }
         }
     }
     if (iterators.size() == 1) {

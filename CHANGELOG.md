@@ -1,6 +1,93 @@
 Release notes
 =============
 
+Version 0.8.80
+--------------
+
+BUG FIX
+
+* Fix #357 group-aggreagate query in backward direction returns
+  invalid first/last values
+
+Version 0.8.79
+--------------
+
+BUG FIX
+
+* Update Docker images on CI
+
+Version 0.8.78
+--------------
+
+IMPROVEMENT
+
+* Add --version command line argument
+* Add /api/version endpoint
+
+Version 0.8.77
+--------------
+
+BUG FIX
+
+* Fix #341 aggregate query optimization
+
+Version 0.8.76
+--------------
+
+IMPROVEMENT
+
+* Expression evaluation using muParser library
+
+Version 0.8.75
+--------------
+
+IMPROVEMENT
+
+* Add group-aggregate-join query
+
+Version 0.8.74
+--------------
+
+IMPROVEMENT
+
+* Add expression evaluation
+
+Version 0.8.73
+--------------
+
+BUG FIX
+
+* Fix #328 group-by query crash
+
+IMPROVEMENT
+
+* Bind HTTP/TCP/UDP server to specific iface
+
+Version 0.8.72
+--------------
+
+BUG FIX
+
+* Fix RPM package dependencies
+
+Version 0.8.71
+--------------
+
+BUG FIX
+
+* Fix bulk-transfer encoding
+
+Version 0.8.70
+--------------
+
+IMPROVEMENT
+
+* Implement events filtering
+
+BUG FIX
+
+* Fix materializaton step for event
+
 Version 0.8.69
 --------------
 

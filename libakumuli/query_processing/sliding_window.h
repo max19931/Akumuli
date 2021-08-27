@@ -20,7 +20,6 @@ namespace QP {
 class EWMA {
     u32 warmup_;
     double value_;
-    aku_Timestamp last_;
     double decay_;
 public:
     EWMA();
@@ -41,7 +40,7 @@ struct EWMAPrediction : Node {
 
     EWMAPrediction(double decay, bool calculate_delta, std::shared_ptr<Node> next);
 
-    EWMAPrediction(boost::property_tree::ptree const& ptree, std::shared_ptr<Node> next);
+    EWMAPrediction(boost::property_tree::ptree const& ptree, const ReshapeRequest&, std::shared_ptr<Node> next);
 
     virtual void complete();
 
@@ -78,7 +77,7 @@ struct SMAPrediction : Node {
 
     SMAPrediction(size_t window_width, bool calculate_delta, std::shared_ptr<Node> next);
 
-    SMAPrediction(boost::property_tree::ptree const& ptree, std::shared_ptr<Node> next);
+    SMAPrediction(boost::property_tree::ptree const& ptree, const ReshapeRequest&, std::shared_ptr<Node> next);
 
     virtual void complete();
 
@@ -99,7 +98,7 @@ struct CMAPrediction : Node {
 
     CMAPrediction(std::shared_ptr<Node> next);
 
-    CMAPrediction(boost::property_tree::ptree const& ptree, std::shared_ptr<Node> next);
+    CMAPrediction(boost::property_tree::ptree const& ptree, const ReshapeRequest&, std::shared_ptr<Node> next);
 
     virtual void complete();
 

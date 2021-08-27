@@ -95,7 +95,7 @@ struct NBTreeCandlestickHint {
 };
 
 struct SuperblockAppender {
-    ~SuperblockAppender() = default;
+    virtual ~SuperblockAppender() = default;
     virtual aku_Status append(SubtreeRef const& p) = 0;
     virtual bool top(SubtreeRef* outref) const = 0;
     virtual bool top(LogicAddr* outaddr) const = 0;
@@ -541,6 +541,7 @@ public:
      */
     std::unique_ptr<RealValuedOperator> search(aku_Timestamp begin, aku_Timestamp end) const;
     std::unique_ptr<BinaryDataOperator> search_binary(aku_Timestamp begin, aku_Timestamp end) const;
+    std::unique_ptr<BinaryDataOperator> filter_binary(aku_Timestamp begin, aku_Timestamp end, const std::string& regex) const;
 
     /**
      * @brief search function

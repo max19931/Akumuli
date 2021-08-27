@@ -2,7 +2,7 @@ sudo: required
 
 language: cpp
 
-dist: trusty
+dist: bionic
 
 group: edge
 
@@ -10,57 +10,58 @@ matrix:
   include:
     # VM-based 64-bit skylake build (GCC)
     - os: linux
-      dist: trusty
+      dist: bionic
       sudo: required
       compiler: gcc
       env:
-      - DISTRIBUTION=ubuntu/trusty
+      - DISTRIBUTION=ubuntu/bionic
       - DEPLOY_PACKAGE=true
       - DEPLOY_IMAGE=true
       - GENERIC_BUILD=false
       script:
-      - bash ./CI/runci.sh ubuntu-14.04
+      - bash ./CI/runci.sh ubuntu-18.04
       - source ./CI/prepare-docker-image.sh
     # VM-based 64-bit generic build (GCC)
     - os: linux
-      dist: trusty
+      dist: bionic
       sudo: required
       compiler: gcc
-      branches:
-        only:
-          - master
       env:
-      - DISTRIBUTION=ubuntu/trusty
+      - DISTRIBUTION=ubuntu/bionic
       - DEPLOY_PACKAGE=false
       - DEPLOY_IMAGE=true
       - GENERIC_BUILD=true
       script:
-      - bash ./CI/runci.sh ubuntu-14.04
+      - bash ./CI/runci.sh ubuntu-18.04
       - source ./CI/prepare-docker-image.sh
-      if: branch = master
-    # VM-based 64-bit OSX build (Clang)
-    - os: osx
-      osx_image: xcode9.2
+      if: branch = master OR tag IS present
+    # VM-based 64-bit build (Clang)
+    - os: linux
+      dist: bionic
+      sudo: required
       compiler: clang
       env:
-      - DEPLOY_PACKAGE=false
-      - DEPLOY_IMAGE=false
-      - GENERIC_BUILD=false
-      script:
-      - bash ./CI/runci.sh osx
-    # VM-based 64-bit WAL check build (GCC)
-    - os: linux
-      dist: trusty
-      sudo: required
-      compiler: gcc
-      env:
-      - DISTRIBUTION=ubuntu/trusty
+      - DISTRIBUTION=ubuntu/bionic
       - DEPLOY_PACKAGE=false
       - DEPLOY_IMAGE=false
       - GENERIC_BUILD=false
       #- DEBUG_BUILD=true
       script:
-      - bash ./CI/runci.sh ubuntu-14.04-wal
+      - bash ./CI/runci.sh ubuntu-18.04
+      if: branch = master OR tag IS present
+    # VM-based 64-bit WAL check build (GCC)
+    - os: linux
+      dist: bionic
+      sudo: required
+      compiler: gcc
+      env:
+      - DISTRIBUTION=ubuntu/bionic
+      - DEPLOY_PACKAGE=false
+      - DEPLOY_IMAGE=false
+      - GENERIC_BUILD=false
+      #- DEBUG_BUILD=true
+      script:
+      - bash ./CI/runci.sh ubuntu-18.04-wal
     # Container based 32-bit Xenial build
     - os: linux
       dist: trusty
@@ -75,10 +76,12 @@ matrix:
       before_install:
       - docker pull i386/ubuntu:xenial
       script:
-      - docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e FORCE_ARCH=i386 -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli i386/ubuntu:xenial ./CI/runci.sh ubuntu-16.04
+      - echo "Disabled"
+      # Disabled because build fails due to timeout because of the slow ubuntu mirror
+      #- docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e FORCE_ARCH=i386 -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli i386/ubuntu:xenial ./CI/runci.sh ubuntu-16.04
     # Container based 64-bit Xenial build
     - os: linux
-      dist: trusty
+      dist: bionic
       sudo: required
       services:
       - docker
@@ -88,29 +91,13 @@ matrix:
       - DEPLOY_IMAGE=false
       - GENERIC_BUILD=false
       before_install:
-      - docker pull ubuntu:16.04
+      - sudo docker pull ubuntu:16.04
       script:
-      - docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli ubuntu:16.04 ./CI/runci.sh ubuntu-16.04
-      if: branch = master
-    # Container based 64-bit Bionic build
-    - os: linux
-      dist: trusty
-      sudo: required
-      services:
-      - docker
-      env:
-      - DISTRIBUTION=ubuntu/bionic
-      - DEPLOY_PACKAGE=true
-      - DEPLOY_IMAGE=false
-      - GENERIC_BUILD=false
-      before_install:
-      - docker pull ubuntu:18.04
-      script:
-      - docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli ubuntu:18.04 ./CI/runci.sh ubuntu-18.04
-      if: branch = master
+      - sudo docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli ubuntu:16.04 ./CI/runci.sh ubuntu-16.04
+      if: branch = master OR tag IS present
     # Container based 64-bit Debian Stretch build
     - os: linux
-      dist: trusty
+      dist: bionic
       sudo: required
       services:
       - docker
@@ -120,13 +107,13 @@ matrix:
       - DEPLOY_IMAGE=false
       - GENERIC_BUILD=false
       before_install:
-      - docker pull debian:stretch
+      - sudo docker pull debian:stretch
       script:
-      - docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli debian:stretch ./CI/runci.sh debian-stretch
-      if: branch = master
+      - sudo docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli debian:stretch ./CI/runci.sh debian-stretch
+      if: branch = master OR tag IS present
     # Container based 64-bit Debian Jessie build
     - os: linux
-      dist: trusty
+      dist: bionic
       sudo: required
       services:
       - docker
@@ -136,13 +123,13 @@ matrix:
       - DEPLOY_IMAGE=false
       - GENERIC_BUILD=false
       before_install:
-      - docker pull debian:jessie
+      - sudo docker pull debian:jessie
       script:
-      - docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli debian:jessie ./CI/runci.sh debian-jessie
-      if: branch = master
+      - sudo docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli debian:jessie ./CI/runci.sh debian-jessie
+      if: branch = master OR tag IS present
     # Container based 64-bit CentOS 7 build
     - os: linux
-      dist: trusty
+      dist: bionic
       sudo: required
       services:
       - docker
@@ -152,11 +139,10 @@ matrix:
       - DEPLOY_IMAGE=false
       - GENERIC_BUILD=false
       before_install:
-      - docker pull centos:centos7
+      - sudo docker pull centos:centos7
       script:
-      - docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli centos:centos7 ./CI/runci.sh centos7
-      if: branch = master
-
+      - sudo docker run --log-driver=none -a stdin -a stdout -a stderr --rm -ti -u root -e GENERIC_BUILD='false' -v "${TRAVIS_BUILD_DIR}":/opt/akumuli -w /opt/akumuli centos:centos7 ./CI/runci.sh centos7
+      if: branch = master OR tag IS present
 env:
   global:
   - secure: DHaTv1euwlpVgePMbw0LEBihzru8VP5RmY7/TUdEpS1dBlJx6nyT6lgmyRcdb19RmTBUXZl1hm7Zu8TfqJJgfty4o9EnpLfTHbY7JwglSqbOo7b/FNAa1Qi0RhVDwc/WvFJDYBUvOtPtVQbPtVtECXm8PZcRqfOuEjkbHmmnIk8=
@@ -183,7 +169,7 @@ deploy:
   token:
     secure: TNIqxlIMy4PUJIn65Yl7dyr1A+TVCMSCOUZOd/XlqlmjntFbxdBKY2M+bX5Cc+uOvNNxFU0m0/RpxYibeN8Juo3BTV0B8YJ4Hjr60F+Sag0UFvvDmxd4vzK+rm+XbYyyx0ukO2ETUxEqxaJaEi0CJPEvEiIeXyJAzIytoVNukkM=
   on:
-    branch: master
+    tags: true
     condition: $DEPLOY_PACKAGE = "true"
   skip_cleanup: true
 
@@ -191,8 +177,9 @@ after_success:
 # Push docker image. Docker image should be created and the variables REPO,
 # VERSION, and TAG should exist.
 - if [[ $TRAVIS_PULL_REQUEST == "false" && $DEPLOY_IMAGE == "true" ]]; then
-      docker login -u "$DOCKER_USER" -p "$DOCKER_PASS";
-      docker push $REPO:$VERSION-$TAG;
+      echo "Pushing to $REPO $VERSION $TAG";
+      sudo docker login -u "$DOCKER_USER" -p "$DOCKER_PASS";
+      sudo docker push $REPO:$VERSION-$TAG;
   fi 
 after_failure: 
 - echo "Build failed"

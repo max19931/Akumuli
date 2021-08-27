@@ -38,12 +38,12 @@ add_library(akumuli SHARED
     query_processing/scale.cpp
     query_processing/absolute.cpp
     query_processing/math.cpp
+    query_processing/eval.cpp
     #query_processing/anomaly.cpp
     #query_processing/filterbyid.cpp
     query_processing/spacesaver.cpp
     query_processing/limiter.cpp
     query_processing/sliding_window.cpp
-    query_processing/queryparser.cpp
 )
 
 add_library(lz4 STATIC
@@ -69,6 +69,7 @@ target_link_libraries(akumuli
     "${APR_LIBRARY}"
     "${APRUTIL_LIBRARY}"
     ${Boost_LIBRARIES}
+    ${muparser_LIBRARIES}
     lz4
     roaring
     pthread)

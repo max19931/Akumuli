@@ -3,10 +3,11 @@ cmake_minimum_required(VERSION 2.8)
 
 set(APP_VERSION_MAJOR "0")
 set(APP_VERSION_MINOR "8")
-set(APP_VERSION_PATCH "69")
+set(APP_VERSION_PATCH "80")
+string(TIMESTAMP APP_COMPILATION_TIME "%Y%m%d")
 
 set(APP_VERSION "${APP_VERSION_MAJOR}.${APP_VERSION_MINOR}.${APP_VERSION_PATCH}")
-add_definitions(-DAKU_VERSION="${APP_VERSION}")
+add_definitions(-DAKU_VERSION="${APP_VERSION}" -DAKU_BUILD_INFO="${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION} ${APP_COMPILATION_TIME}")
 set(CMAKE_VERBOSE_MAKEFILE ON)
 
 message("Processor: ${CMAKE_SYSTEM_PROCESSOR}")
@@ -123,12 +124,14 @@ find_package(Threads REQUIRED)
 # this doesn't work with centos, disabled until solution will be found
 #find_package(JeMalloc REQUIRED)
 find_package(libmicrohttpd REQUIRED)
+find_package(muparser REQUIRED)
 
 include_directories(${Boost_INCLUDE_DIRS})
 include_directories("${APR_INCLUDE_DIR}")
 include_directories("${APRUTIL_INCLUDE_DIR}")
 include_directories("${SQLITE3_INCLUDE_DIR}")
 include_directories("${LIBMICROHTTPD_INCLUDE_DIRS}")
+include_directories("${muparser_INCLUDES}")
 
 add_definitions(-fvisibility=hidden)
 

@@ -264,25 +264,68 @@ struct ConfigFile {
     static ServerSettings get_http_server(PTree conf) {
         ServerSettings settings;
         settings.name = "HTTP";
-        settings.protocols.push_back({ "HTTP", conf.get<int>("HTTP.port")});
-        settings.nworkers = -1;
+        auto ip = conf.get_optional<std::string>("HTTP.bind_addr");
+        if (ip) {
+            auto addr = boost::asio::ip::address_v4::from_string(*ip);
+            boost::asio::ip::tcp::endpoint endpoint(addr, conf.get<unsigned short>("HTTP.port"));
+            settings.protocols.push_back({ "HTTP", endpoint});
+            settings.nworkers = -1;
+        }
+        else {
+            boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(),
+                                                    conf.get<unsigned short>("HTTP.port"));
+            settings.protocols.push_back({ "HTTP", endpoint });
+            settings.nworkers = -1;
+        }
         return settings;
     }
 
     static ServerSettings get_udp_server(PTree conf) {
         ServerSettings settings;
         settings.name = "UDP";
-        settings.protocols.push_back({ "UDP", conf.get<int>("UDP.port")});
-        settings.nworkers = conf.get<int>("UDP.pool_size");
+        auto ip = conf.get_optional<std::string>("UDP.bind_addr");
+        if (ip) {
+            auto addr = boost::asio::ip::address_v4::from_string(*ip);
+            boost::asio::ip::tcp::endpoint endpoint(addr, conf.get<unsigned short>("UDP.port"));
+            settings.protocols.push_back({ "UDP", endpoint});
+            settings.nworkers = conf.get<int>("UDP.pool_size");
+        }
+        else {
+            boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(),
+                                                    conf.get<unsigned short>("UDP.port"));
+            settings.protocols.push_back({ "UDP", endpoint });
+            settings.nworkers = conf.get<int>("UDP.pool_size");
+        }
         return settings;
     }
 
     static ServerSettings get_tcp_server(PTree conf) {
         ServerSettings settings;
         settings.name = "TCP";
-        settings.protocols.push_back({ "RESP", conf.get<int>("TCP.port")});
+        auto ip = conf.get_optional<std::string>("TCP.bind_addr");
+        if (ip) {
+            auto addr = boost::asio::ip::address_v4::from_string(*ip);
+            boost::asio::ip::tcp::endpoint endpoint(addr, conf.get<unsigned short>("TCP.port"));
+            settings.protocols.push_back({ "RESP", endpoint });
+        }
+        else {
+            boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(),
+                                                    conf.get<unsigned short>("TCP.port"));
+            settings.protocols.push_back({ "RESP", endpoint });
+        }
+
         if (conf.count("OpenTSDB")) {
-            settings.protocols.push_back({ "OpenTSDB", conf.get<int>("OpenTSDB.port")});
+            auto oip = conf.get_optional<std::string>("OpenTSDB.bind_addr");
+            if (oip) {
+                auto addr = boost::asio::ip::address_v4::from_string(*oip);
+                boost::asio::ip::tcp::endpoint endpoint(addr, conf.get<unsigned short>("OpenTSDB.port"));
+                settings.protocols.push_back({ "OpenTSDB", endpoint });
+            }
+            else {
+                boost::asio::ip::tcp::endpoint endpoint(boost::asio::ip::tcp::v4(),
+                                                        conf.get<unsigned short>("OpenTSDB.port"));
+                settings.protocols.push_back({ "OpenTSDB", endpoint });
+            }
         }
         settings.nworkers = conf.get<int>("TCP.pool_size");
         return settings;
@@ -505,7 +548,7 @@ void cmd_run_server(boost::optional<std::string> cmd_config_path) {
         }
 
         auto connection  = std::make_shared<AkumuliConnection>(full_path.c_str(), params);
-        auto qproc       = std::make_shared<QueryProcessor>(connection, 1000);
+        auto qproc       = std::make_shared<QueryProcessor>(connection, 2048);
 
         SignalHandler sighandler;
         int srvid = 0;
@@ -518,13 +561,13 @@ void cmd_run_server(boost::optional<std::string> cmd_config_path) {
             logger.info() << "Starting " << settings.name << " index " << srvid;
             if (settings.protocols.size() == 1) {
                 std::cout << cli_format("**OK** ") << settings.name
-                          << " server started, port: " << settings.protocols[0].port << std::endl;
+                          << " server started, endpoint: " << settings.protocols[0].endpoint << std::endl;
             } else {
                 std::cout << cli_format("**OK** ") << settings.name
                           << " server started";
                 for (const auto& protocol: settings.protocols) {
-                    std::cout << ", " << protocol.name << " port: " << protocol.port;
-                    logger.info() << "Protocol: " << protocol.name << " port: " << protocol.port;
+                    std::cout << ", " << protocol.name << " endpoint: " << protocol.endpoint;
+                    logger.info() << "Protocol: " << protocol.name << " endpoint: " << protocol.endpoint;
                 }
                 std::cout << std::endl;
             }
@@ -679,6 +722,7 @@ int main(int argc, char** argv) {
                 ("disable-wal", "Disable WAL in generated configuration file (can be used with --init)")
                 ("debug-dump", po::value<std::string>(), "Create debug dump")
                 ("debug-recovery-dump", po::value<std::string>(), "Create debug dump of the system after crash recovery")
+                ("version", "Print software version")
                 ;
 
         po::variables_map vm;
@@ -771,6 +815,11 @@ int main(int argc, char** argv) {
             } else {
                 cmd_dump_recovery_debug_information(cmd_config_path, path.c_str());
             }
+            exit(EXIT_SUCCESS);
+        }
+
+        if (vm.count("version")) {
+            std::cout << AKU_VERSION << std::endl;
             exit(EXIT_SUCCESS);
         }
 
